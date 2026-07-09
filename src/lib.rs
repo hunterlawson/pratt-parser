@@ -6,7 +6,12 @@ pub use parser::*;
 
 #[cfg(test)]
 mod tests {
-    use crate::{error::ParserError, lexer::{Operator, Token}, parser::Parser};
+    use crate::{
+        Expr,
+        error::ParserError,
+        lexer::{Operator, Token},
+        parser::Parser,
+    };
 
     #[test]
     fn lexer_malformed_number() {
@@ -49,7 +54,7 @@ mod tests {
         let mut lexer = Parser::new("abs(Z)^2 + C")
             .expect("the formula is formatted correctly")
             .lexer;
-        
+
         assert_eq!(Token::Ident("abs".into()), lexer.next());
         assert_eq!(Token::LParen, lexer.next());
         assert_eq!(Token::Ident("Z".into()), lexer.next());
@@ -84,5 +89,14 @@ mod tests {
         assert_eq!(Token::Ident("C".into()), lexer.peek());
         lexer.next();
         assert_eq!(Token::Eof, lexer.peek());
+    }
+
+    #[test]
+    fn parser_builds() {
+        let ast = Parser::new("Z^(-2) + C * 2").unwrap().parse().unwrap();
+
+        println!("{ast:#?}");
+
+        assert_eq!(format!("{ast:#?}"), format!("{:?}", Expr::Var("Z".into())));
     }
 }
