@@ -2,6 +2,8 @@ mod error;
 mod lexer;
 mod parser;
 
+pub use error::*;
+pub use lexer::*;
 pub use parser::*;
 
 #[cfg(test)]
@@ -190,4 +192,56 @@ mod tests {
         assert!(parse("((((10 + 594 * z^2 + abs(4)))))").is_ok());
         assert!(parse("((2)) - (((5)) * (3 + (4 * 10)))").is_ok());
     }
+
+    #[test]
+    fn op_precidence() {
+        let expr = parse("1 + 2 * 3").expect("correct format");
+        let expected_expr = Expr::Binary {
+            op: Operator::Add,
+            lhs: Box::new(Expr::Int(1)),
+            rhs: Box::new(Expr::Binary {
+                op: Operator::Mul,
+                lhs: Box::new(Expr::Int(2)),
+                rhs: Box::new(Expr::Int(3)),
+            }),
+        };
+        assert_eq!(expr, expected_expr);
+
+        let expr = parse("1 * 2^3").expect("correct format");
+        let expected_expr = Expr::Binary {
+            op: Operator::Mul,
+            lhs: Box::new(Expr::Int(1)),
+            rhs: Box::new(Expr::Binary {
+                op: Operator::Pow,
+                lhs: Box::new(Expr::Int(2)),
+                rhs: Box::new(Expr::Int(3)),
+            }),
+        };
+        assert_eq!(expr, expected_expr);
+
+        let expr = parse("1 * -2^3").expect("correct format");
+        let expected_expr = Expr::Binary {
+            op: Operator::Mul,
+            lhs: Box::new(Expr::Int(1)),
+            rhs: Box::new(Expr::Unary {
+                op: Operator::Sub,
+                operand: Box::new(Expr::Binary {
+                    op: Operator::Pow,
+                    lhs: Box::new(Expr::Int(2)),
+                    rhs: Box::new(Expr::Int(3)),
+                }),
+            }),
+        };
+        assert_eq!(expr, expected_expr);
+    }
+
+    #[test]
+    fn expr_print() {
+        let infix_not = parse("1 + 2 * 3").unwrap().infix_notation();
+        assert_eq!(infix_not, "(1 + (2 * 3))".to_string());
+
+        let infix_not = parse("-10^(-15 * 4.23) + -Z * 4").unwrap().infix_notation();
+        assert_eq!(infix_not, "(-(10 ^ (-15 * 4.23)) + (-Z * 4))".to_string());
+    }
 }
+

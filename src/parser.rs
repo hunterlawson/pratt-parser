@@ -2,8 +2,10 @@ use strum::EnumIs;
 
 use crate::{
     error::{
-        ParserError::{self, UnexpectedToken}, ParserResult,
-    }, lexer::{Lexer, Operator, Token, TokenWithPos},
+        ParserError::{self, UnexpectedToken},
+        ParserResult,
+    },
+    lexer::{Lexer, Operator, Token, TokenWithPos},
 };
 
 pub fn parse(expr: &str) -> ParserResult<Expr> {
@@ -39,6 +41,46 @@ pub enum Expr {
     },
     /// Used in function args when no args were supplied
     NullExpr,
+}
+
+impl Expr {
+    /// Output the AST represented by this root expresion in prefix notation
+    ///
+    /// ex: "1 + 2 * 3" -> "(1 + (2 * 3))"
+    pub fn infix_notation(&self) -> String {
+        let mut output = String::new();
+        fn infix_recur(expr: &Expr, output: &mut String) {
+            match expr {
+                Expr::Int(n) => output.push_str(&n.to_string()),
+                Expr::Float(n) => output.push_str(&n.to_string()),
+                Expr::Var(v) => output.push_str(v),
+                Expr::Unary { op, operand } => {
+                    output.push_str(&op.to_string());
+                    infix_recur(operand, output);
+                },
+                Expr::Binary { op, lhs, rhs } => {
+                    output.push('(');
+                    infix_recur(lhs, output);
+                    output.push_str(&format!(" {} ", op.to_string()));
+                    infix_recur(rhs, output);
+                    output.push(')');
+                },
+                Expr::Call { func, args } => {
+                    output.push_str(&format!("{func}("));
+                    for arg in args {
+                        infix_recur(arg, output);
+                        output.push(',');
+                    }
+                    output.push(')');
+                },
+                Expr::NullExpr => (),
+            }
+        }
+
+        infix_recur(self, &mut output);
+
+        output
+    }
 }
 
 impl Parser {

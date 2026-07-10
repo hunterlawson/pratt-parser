@@ -40,10 +40,15 @@ fn token_with_pos(token: Token, pos: usize) -> TokenWithPos {
 
 #[derive(Debug, Clone, Copy, PartialEq, Display, EnumIs)]
 pub enum Operator {
+    #[strum(to_string = "+")]
     Add,
+    #[strum(to_string = "-")]
     Sub,
+    #[strum(to_string = "*")]
     Mul,
+    #[strum(to_string = "/")]
     Div,
+    #[strum(to_string = "^")]
     Pow,
 }
 
