@@ -194,7 +194,7 @@ mod tests {
     }
 
     #[test]
-    fn op_precidence() {
+    fn op_precedence() {
         let expr = parse("1 + 2 * 3").expect("correct format");
         let expected_expr = Expr::Binary {
             op: Operator::Add,

@@ -1,10 +1,10 @@
 # Rust Pratt Parser
 
-Parses strings into an expression tree using the [Pratt algorithm](https://en.wikipedia.org/wiki/Operator-precedence_parser#Pratt_parsing) for operator precidence parsing. The following syntax and features are supported:
+Parses strings into an expression tree using the [Pratt algorithm](https://en.wikipedia.org/wiki/Operator-precedence_parser#Pratt_parsing) for operator-precedence parsing. The following syntax and features are supported:
 
 - Variables: `X, Y, num_1, abc`
 - Functions: `abs(x)` `complex_multiply(a, b)`
-- Operators with custom precidence: `+ - * / ^`
+- Operators with custom precedence: `+ - * / ^`
 - Custom error types that make it clear if it is a lexing or parsing error
 - Easily walkable `Expr` tree types that supports unary and binary operators and functions with variable arguments
 
@@ -23,6 +23,50 @@ let expr = "-10^(-15 * 4.23) + -Z * 4";
 let parsed_expr = parse(expr).unwrap().infix_notation();
 // "(-(10 ^ (-15 * 4.23)) + (-Z * 4))"
 ```
+
+### Expression Trees
+
+The `Expr` type emitted from the parsing function is a tree representation of the expression:
+
+```rust
+/// Represents an expression tree
+pub enum Expr {
+    Int(i64),
+    Float(f64),
+    Var(String),
+    Unary {
+        op: Operator,
+        operand: Box<Expr>,
+    },
+    Binary {
+        op: Operator,
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
+    },
+    Call {
+        func: String,
+        args: Vec<Expr>,
+    },
+}
+```
+
+The parsing function returns the root expression of the tree directly:
+
+```rust
+let expr = parse("1 + 2 * 3").expect("correct format");
+let expected_expr = Expr::Binary {
+    op: Operator::Add,
+    lhs: Box::new(Expr::Int(1)),
+    rhs: Box::new(Expr::Binary {
+        op: Operator::Mul,
+        lhs: Box::new(Expr::Int(2)),
+        rhs: Box::new(Expr::Int(3)),
+    }),
+};
+assert_eq!(expr, expected_expr);
+```
+
+Walking down this tree recursively allows any consuming functions to easily apply the correct operator precedence.
 
 ### Errors
 
