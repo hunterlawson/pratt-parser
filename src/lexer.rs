@@ -14,6 +14,30 @@ pub enum Token {
     Eof,
 }
 
+/// Represents a token with a position in the expression
+///
+/// pos: `None` represents special tokens like EOF that don't have a pos
+#[derive(Clone)]
+pub(crate) struct TokenWithPos {
+    pub(crate) token: Token,
+    pub(crate) pos: Option<usize>,
+}
+
+const EOF_TOKEN_POS: TokenWithPos = TokenWithPos {
+    token: Token::Eof,
+    pos: None,
+};
+
+fn token_with_pos(token: Token, pos: usize) -> TokenWithPos {
+    match token {
+        Token::Eof => EOF_TOKEN_POS,
+        _ => TokenWithPos {
+            token,
+            pos: Some(pos),
+        },
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Display, EnumIs)]
 pub enum Operator {
     Add,
@@ -24,17 +48,19 @@ pub enum Operator {
 }
 
 impl Token {
-    pub(crate) fn parse_number(s: &String, pos: usize) -> ParserResult<Token> {
+    fn parse_number(s: &String, pos: usize) -> ParserResult<Token> {
         if s.contains(".") {
-            let num = s
-                .parse::<f64>()
-                .map_err(|_| ParserError::MalformedNumber(pos, format!("{s}")))?;
+            let num = s.parse::<f64>().map_err(|_| ParserError::MalformedNumber {
+                pos,
+                str: format!("{s}"),
+            })?;
 
             Ok(Token::Float(num))
         } else {
-            let num = s
-                .parse::<i64>()
-                .map_err(|_| ParserError::MalformedNumber(pos, format!("{s}")))?;
+            let num = s.parse::<i64>().map_err(|_| ParserError::MalformedNumber {
+                pos,
+                str: format!("{s}"),
+            })?;
 
             Ok(Token::Int(num))
         }
@@ -42,8 +68,7 @@ impl Token {
 }
 
 pub(crate) struct Lexer {
-    tokens: Vec<Token>,
-    expr_raw: String,
+    tokens: Vec<TokenWithPos>,
 }
 
 impl Lexer {
@@ -68,12 +93,11 @@ impl Lexer {
         let mut current_str_pos = 0;
 
         while let Some((i, char)) = current_char {
-            current_str_pos = i - current_str.len();
             match state {
                 State::Start => {
                     // check if it's an operator
                     if let Some(token) = Self::char_to_token(char) {
-                        tokens.push(token);
+                        tokens.push(token_with_pos(token, i));
                         current_char = expr_iter.next();
                         continue;
                     }
@@ -83,13 +107,15 @@ impl Lexer {
                         c if c.is_ascii_alphabetic() => {
                             state = State::InIdent;
                             current_str.push(c);
+                            current_str_pos = i;
                         }
                         // begining of number
                         c if c.is_ascii_digit() => {
                             state = State::InNum;
                             current_str.push(c);
+                            current_str_pos = i;
                         }
-                        _ => return Err(ParserError::UnexpectedChar(i, char)),
+                        _ => return Err(ParserError::UnexpectedChar { pos: i, c: char }),
                     }
 
                     current_char = expr_iter.next();
@@ -101,7 +127,7 @@ impl Lexer {
                     }
                     _ => {
                         state = State::Start;
-                        tokens.push(Token::Ident(current_str));
+                        tokens.push(token_with_pos(Token::Ident(current_str), current_str_pos));
                         current_str = String::new();
                     }
                 },
@@ -110,9 +136,15 @@ impl Lexer {
                         current_str.push(c);
                         current_char = expr_iter.next();
                     }
+                    c if c.is_alphabetic() => {
+                        return Err(ParserError::UnexpectedChar { pos: i, c });
+                    }
                     _ => {
                         state = State::Start;
-                        tokens.push(Token::parse_number(&current_str, current_str_pos - 1)?);
+                        tokens.push(token_with_pos(
+                            Token::parse_number(&current_str, current_str_pos)?,
+                            current_str_pos,
+                        ));
                         current_str = String::new();
                     }
                 },
@@ -123,15 +155,20 @@ impl Lexer {
         if current_str.len() > 0 {
             match state {
                 State::Start => (),
-                State::InIdent => tokens.push(Token::Ident(current_str)),
-                State::InNum => tokens.push(Token::parse_number(&current_str, current_str_pos)?),
+                State::InIdent => {
+                    tokens.push(token_with_pos(Token::Ident(current_str), current_str_pos))
+                }
+                State::InNum => tokens.push(token_with_pos(
+                    Token::parse_number(&current_str, current_str_pos)?,
+                    current_str_pos,
+                )),
             }
         }
 
         // reverse it because next() reads off the top of the stack
         tokens.reverse();
 
-        Ok(Self { tokens, expr_raw })
+        Ok(Self { tokens })
     }
 
     fn char_to_token(c: char) -> Option<Token> {
@@ -148,15 +185,13 @@ impl Lexer {
         }
     }
 
-    pub(crate) fn next(&mut self) -> Token {
-        self.tokens.pop().unwrap_or(Token::Eof)
+    /// Return the next character and its position
+    pub(crate) fn next(&mut self) -> TokenWithPos {
+        self.tokens.pop().unwrap_or(EOF_TOKEN_POS)
     }
 
-    pub(crate) fn peek(&self) -> Token {
-        self.tokens.last().cloned().unwrap_or(Token::Eof)
-    }
-
-    pub(crate) fn expr(&self) -> &String {
-        &self.expr_raw
+    /// Peek the next character and its position
+    pub(crate) fn peek(&self) -> TokenWithPos {
+        self.tokens.last().cloned().unwrap_or(EOF_TOKEN_POS)
     }
 }

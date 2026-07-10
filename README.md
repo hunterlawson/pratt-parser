@@ -1,9 +1,10 @@
 # Rust Pratt Parser
 
-Parses strings into a token tree using opereator precidence with the following operators and features supported:
+Parses strings into an expression tree using opereator precidence with the following operators and features supported:
 
-- Single character variables: `a, b, c`
-- Operators: `+ - * / ^ ()`
+- Variables: `X, Y, num_1, abc`
+- Functions: `abs(x)` `complex_multiply(a, b)`
+- Operators: `+ - * / ^`
 
 ## Examples
 

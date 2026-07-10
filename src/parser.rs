@@ -1,14 +1,25 @@
+use strum::EnumIs;
+
 use crate::{
-    error::{ParserError, ParserResult},
-    lexer::{Lexer, Operator, Token},
+    error::{
+        ParserError::{self, UnexpectedToken}, ParserResult,
+    }, lexer::{Lexer, Operator, Token, TokenWithPos},
 };
 
-pub struct Parser {
-    pub(crate) lexer: Lexer,
+pub fn parse(expr: &str) -> ParserResult<Expr> {
+    let lexer = Lexer::new(expr)?;
+    let mut parser = Parser { lexer, pos: None };
+
+    parser.parse()
 }
 
-/// AST Output
-#[derive(Debug, PartialEq)]
+struct Parser {
+    lexer: Lexer,
+    pos: Option<usize>,
+}
+
+/// Expression tree representing a parsed raw expression.
+#[derive(Debug, PartialEq, EnumIs)]
 pub enum Expr {
     Int(i64),
     Float(f64),
@@ -26,29 +37,28 @@ pub enum Expr {
         func: String,
         args: Vec<Expr>,
     },
+    /// Used in function args when no args were supplied
+    NullExpr,
 }
 
 impl Parser {
-    pub fn new(expr: &str) -> ParserResult<Self> {
-        Ok(Self {
-            lexer: Lexer::new(expr)?,
-        })
-    }
-
     fn next(&mut self) -> Token {
-        self.lexer.next()
+        let TokenWithPos { token, pos } = self.lexer.next();
+        self.pos = pos;
+
+        token
     }
 
     fn peek(&self) -> Token {
-        self.lexer.peek()
+        self.lexer.peek().token
     }
 
-    pub fn parse(&mut self) -> ParserResult<Expr> {
+    fn parse(&mut self) -> ParserResult<Expr> {
         let expr = self.parse_expr(0)?;
 
         match self.peek() {
             Token::Eof => Ok(expr),
-            t => Err(ParserError::UnexpectedToken(t))
+            t => Err(ParserError::UnexpectedToken(t)),
         }
     }
 
@@ -78,6 +88,11 @@ impl Parser {
             }
 
             self.next(); // consume the operator
+            // Next token can't be a rParen
+            match self.peek() {
+                Token::RParen => return Err(UnexpectedToken(Token::RParen)),
+                _ => (),
+            }
             let rhs = self.parse_expr(bp_right)?;
 
             lhs = Expr::Binary {
@@ -98,6 +113,8 @@ impl Parser {
             Token::Ident(name) => self.var_or_call(name),
             Token::Op(op) if op.is_sub() => self.parse_unary_minus(),
             Token::LParen => self.parse_grouping(),
+            Token::RParen => Ok(Expr::NullExpr),
+            Token::Eof => Err(ParserError::ReachedEOF),
             t => Err(ParserError::UnexpectedPrefixToken(t)),
         }
     }
@@ -129,12 +146,34 @@ impl Parser {
                 // this is a function call, consume the insides
                 self.next(); // consume the LParen
                 let mut args = vec![];
-                loop {
-                    args.push(self.parse_expr(0)?);
-                    match self.next() {
-                        Token::Comma => continue,
-                        Token::RParen => break,
-                        t => return Err(ParserError::MissingExprRParen(t)),
+                // convert error to reflect we reached EOF inside function args
+                let arg1 = self.parse_expr(0).map_err(|e| match e {
+                    ParserError::ReachedEOF => ParserError::ReachedEOFArgs,
+                    e => e,
+                })?;
+                match arg1 {
+                    Expr::NullExpr => (),
+                    _ => {
+                        // attempt to collect additional arguments
+                        args.push(arg1);
+                        loop {
+                            match self.peek() {
+                                Token::Comma => {
+                                    self.next();
+                                    let argv = self.parse_expr(0)?;
+                                    if argv.is_null_expr() {
+                                        return Err(ParserError::UnexpectedToken(Token::Comma));
+                                    }
+                                    args.push(argv);
+                                }
+                                Token::RParen => {
+                                    self.next();
+                                    break;
+                                }
+                                Token::Eof => return Err(ParserError::ReachedEOFArgs),
+                                t => return Err(ParserError::UnexpectedToken(t)),
+                            }
+                        }
                     }
                 }
 
