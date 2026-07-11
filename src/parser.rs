@@ -21,7 +21,7 @@ struct Parser {
 }
 
 /// Expression tree representing a parsed raw expression.
-#[derive(Debug, PartialEq, EnumIs)]
+#[derive(Debug, PartialEq, EnumIs, Clone)]
 pub enum Expr {
     Int(i64),
     Float(f64),
