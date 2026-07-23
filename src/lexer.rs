@@ -1,45 +1,18 @@
-use strum::{Display, EnumIs};
-
-use crate::error::{ParserError, ParserResult};
-
-#[derive(Debug, Clone, PartialEq, Display)]
-pub enum Token {
-    Int(i64),
-    Float(f64),
-    Ident(String), // Identifier that starts with a letter
-    Op(Operator),
-    LParen,
-    RParen,
-    Comma,
-    Eof,
-}
-
-/// Represents a token with a position in the expression
-///
-/// pos: `None` represents special tokens like EOF that don't have a pos
-#[derive(Clone)]
-pub(crate) struct TokenWithPos {
-    pub(crate) token: Token,
-    pub(crate) pos: Option<usize>,
-}
-
-const EOF_TOKEN_POS: TokenWithPos = TokenWithPos {
-    token: Token::Eof,
-    pos: None,
+use std::{
+    collections::{HashMap, HashSet},
+    marker::PhantomData,
 };
 
-fn token_with_pos(token: Token, pos: usize) -> TokenWithPos {
-    match token {
-        Token::Eof => EOF_TOKEN_POS,
-        _ => TokenWithPos {
-            token,
-            pos: Some(pos),
-        },
-    }
-}
+use strum::{Display, EnumIter};
 
-#[derive(Debug, Clone, Copy, PartialEq, Display, EnumIs)]
-pub enum Operator {
+use crate::{
+    LexerError, LexerResult, ParserError, ParserResult,
+    token::{Delimited, Operator, TextPosition, Token, TokenPos},
+};
+
+/// Default operator type
+#[derive(Display, EnumIter, PartialEq, Eq, Hash, Debug, Clone, Copy)]
+pub enum DefaultOps {
     #[strum(to_string = "+")]
     Add,
     #[strum(to_string = "-")]
@@ -48,155 +21,266 @@ pub enum Operator {
     Mul,
     #[strum(to_string = "/")]
     Div,
-    #[strum(to_string = "^")]
-    Pow,
 }
 
-impl Token {
-    fn parse_number(s: &String, pos: usize) -> ParserResult<Token> {
-        if s.contains(".") {
-            let num = s.parse::<f64>().map_err(|_| ParserError::MalformedNumber {
-                pos,
-                str: format!("{s}"),
-            })?;
-
-            Ok(Token::Float(num))
-        } else {
-            let num = s.parse::<i64>().map_err(|_| ParserError::MalformedNumber {
-                pos,
-                str: format!("{s}"),
-            })?;
-
-            Ok(Token::Int(num))
-        }
+impl Operator for DefaultOps {
+    fn binding_power(&self) -> (Option<u16>, Option<u16>) {
+        (None, None)
     }
 }
+/// Null delimited type
+#[derive(EnumIter, Debug, PartialEq, Clone)]
+pub enum NullDelimiter {}
+impl Delimited for NullDelimiter {}
 
-pub(crate) struct Lexer {
-    tokens: Vec<TokenWithPos>,
+/// Lexer for use with the Parser struct
+#[derive(Debug)]
+pub struct Lexer<O, D = NullDelimiter> {
+    op_map: HashMap<String, O>,
+    dl_l_map: HashMap<String, (D, String)>,
+    valid_symbols: HashSet<char>,
+    text: String,
+    text_index: usize,
+    text_pos: TextPosition,
+    current_err: Option<LexerError>,
 }
 
-impl Lexer {
-    pub(crate) fn new(expr: &str) -> ParserResult<Self> {
-        let expr_raw = String::from(expr);
-        let mut expr_iter = expr_raw
-            .chars()
-            .enumerate()
-            .filter(|(_, c)| !c.is_ascii_whitespace());
-        let mut current_char = expr_iter.next();
+impl<O, D> Lexer<O, D>
+where
+    O: Operator,
+    D: Delimited,
+{
+    /// Initialize an empty lexer with the given operator and delimited type rules
+    pub fn new() -> Self {
+        // Build the maps of operators and delineators
+        let op_map = O::iter().map(|v| (v.to_string(), v)).collect();
 
+        let dl_l_map = D::iter()
+            .filter_map(|v| v.delimiters().map(|d| (d.0, (v, d.1))))
+            .collect();
+
+        // add every char from the operators and the delimiters
+        let mut valid_symbols: HashSet<char> = O::iter()
+            .flat_map(|o| o.to_string().chars().collect::<Vec<char>>())
+            .collect();
+        let delimiters: Vec<(String, String)> = D::iter().flat_map(|d| d.delimiters()).collect();
+        for (left, right) in delimiters {
+            valid_symbols.extend(left.chars());
+            valid_symbols.extend(right.chars());
+        }
+
+        Self {
+            op_map,
+            dl_l_map,
+            valid_symbols,
+            text: String::new(),
+            text_index: 0,
+            text_pos: TextPosition::default(),
+            current_err: None,
+        }
+    }
+
+    pub fn next(&mut self) -> LexerResult<TokenPos<O, D>> {
+        if let Some(e) = &self.current_err {
+            return Err(e.clone());
+        }
+
+        let res = self.next_token();
+        if let Err(e) = &res {
+            self.current_err = Some(e.clone());
+        }
+
+        res
+    }
+
+    /// Peek the current character in the text if it exists
+    fn current_char(&mut self) -> Option<char> {
+        self.text.chars().nth(self.text_index)
+    }
+
+    /// Consume the next char in the text by incrementing the index by 1
+    fn consume_char(&mut self) {
+        // update the position
+        match self.current_char() {
+            Some('\n') => {
+                self.text_index += 1;
+                self.text_pos.line += 1;
+                self.text_pos.col = 0;
+            }
+            Some(_) => {
+                self.text_index += 1;
+                self.text_pos.col += 1;
+            }
+            None => (),
+        }
+    }
+
+    /// Consume chars until the next non-whitespace character in the text
+    ///
+    /// Increment the index and update the position until we find it
+    fn skip_non_whitespace(&mut self) {
+        while let Some(c) = self.current_char()
+            && c.is_whitespace()
+        {
+            self.consume_char();
+        }
+    }
+
+    /// Get the next token from the current text
+    fn next_token(&mut self) -> LexerResult<TokenPos<O, D>> {
         #[derive(PartialEq)]
         enum State {
             Start,
             InIdent,
             InNum,
+            InDl,
         }
+        // skip any starting whitespace
+        self.skip_non_whitespace();
 
-        let mut tokens = vec![];
-        let mut state = State::Start;
+        let start_pos = self.text_pos;
         let mut current_str = String::new();
-        let mut current_str_pos = 0;
+        let mut current_state = State::Start;
+        let mut current_open_dl = String::new();
+        let mut expected_closing_dl = String::new();
 
-        while let Some((i, char)) = current_char {
-            match state {
+        while let Some(c) = self.current_char() {
+            // check if the current_str matches any operators
+            if let Some(o) = self.op_map.get(&current_str) {
+                let op_token = Token::Op(o.clone());
+                let op_token_pos = TokenPos::new(op_token, start_pos);
+                self.consume_char(); // consume the operator right char
+                return Ok(op_token_pos);
+            }
+            // check if the current_str matches any starting delimiters
+            // ignore if we're already inside a delimited type
+            // this lexer does not handle nexted delimited types - you would need to build another lexer
+            // that then parses the string inside the first type
+            if let Some((_, s)) = self.dl_l_map.get(&current_str)
+                && current_state == State::Start
+            {
+                current_open_dl = current_str.clone();
+                expected_closing_dl = s.clone();
+                current_str = String::new();
+                current_state = State::InDl;
+            }
+
+            // break if whitespace
+            if c.is_whitespace() && current_state != State::InDl {
+                break;
+            }
+
+            match current_state {
                 State::Start => {
-                    // check if it's an operator
-                    if let Some(token) = Self::char_to_token(char) {
-                        tokens.push(token_with_pos(token, i));
-                        current_char = expr_iter.next();
-                        continue;
-                    }
-                    // otherwise match on the character
-                    match char {
-                        // beginning of an ident
-                        c if c.is_ascii_alphabetic() => {
-                            state = State::InIdent;
-                            current_str.push(c);
-                            current_str_pos = i;
+                    current_str.push(c);
+                    match c {
+                        _ if c.is_alphabetic() => current_state = State::InIdent,
+                        _ if c.is_numeric() => current_state = State::InNum,
+                        c if !self.valid_symbols.contains(&c) => {
+                            return Err(LexerError::UnexpectedChar {
+                                c,
+                                pos: self.text_pos,
+                            });
                         }
-                        // begining of number
-                        c if c.is_ascii_digit() => {
-                            state = State::InNum;
-                            current_str.push(c);
-                            current_str_pos = i;
-                        }
-                        _ => return Err(ParserError::UnexpectedChar { pos: i, c: char }),
+                        _ => (),
                     }
-
-                    current_char = expr_iter.next();
                 }
-                State::InIdent => match char {
-                    c if c.is_alphanumeric() => {
-                        current_str.push(c);
-                        current_char = expr_iter.next();
-                    }
-                    _ => {
-                        state = State::Start;
-                        tokens.push(token_with_pos(Token::Ident(current_str), current_str_pos));
-                        current_str = String::new();
-                    }
+                State::InIdent => match c {
+                    c if c.is_alphanumeric() => current_str.push(c),
+                    _ => break,
                 },
-                State::InNum => match char {
-                    c if c.is_ascii_digit() || c == '.' => {
-                        current_str.push(c);
-                        current_char = expr_iter.next();
-                    }
-                    c if c.is_alphabetic() => {
-                        return Err(ParserError::UnexpectedChar { pos: i, c });
-                    }
-                    _ => {
-                        state = State::Start;
-                        tokens.push(token_with_pos(
-                            Token::parse_number(&current_str, current_str_pos)?,
-                            current_str_pos,
-                        ));
-                        current_str = String::new();
-                    }
+                State::InNum => match c {
+                    c if c.is_numeric() || c == '.' => current_str.push(c),
+                    _ => break,
                 },
+                State::InDl => {
+                    current_str.push(c);
+                    if current_str.ends_with(&expected_closing_dl) {
+                        // return the delimited type
+                        let dl_str = current_str
+                            .trim_end_matches(&expected_closing_dl)
+                            .to_string();
+                        let mut dl = self
+                            .dl_l_map
+                            .get(&current_open_dl)
+                            .expect("guaranteed")
+                            .0
+                            .clone();
+
+                        dl.set(dl_str);
+                        let dl_token = Token::Delimited(dl);
+                        let dl_token_pos = TokenPos::new(dl_token, start_pos);
+                        self.consume_char(); // consume the delimiter
+                        return Ok(dl_token_pos);
+                    }
+                }
+            }
+
+            self.consume_char();
+        }
+
+        // Output a token from the string depending on the current state
+        match current_state {
+            State::Start => {
+                if current_str.len() == 0 {
+                    Ok(TokenPos::eof())
+                } else {
+                    Err(LexerError::UnexpectedString {
+                        str: current_str,
+                        pos: start_pos,
+                    })
+                }
+            }
+            State::InIdent => {
+                let ident_token = Token::Ident(current_str);
+                let ident_token_pos = TokenPos::new(ident_token, start_pos);
+                Ok(ident_token_pos)
+            }
+            State::InNum => {
+                if current_str.contains('.') {
+                    // parse as float
+                    let f_res =
+                        current_str
+                            .parse::<f64>()
+                            .map_err(|_| LexerError::FloatParsingError {
+                                str: current_str,
+                                pos: start_pos,
+                            })?;
+                    let f_token = Token::Float(f_res);
+                    let f_token_pos = TokenPos::new(f_token, start_pos);
+                    Ok(f_token_pos)
+                } else {
+                    // parse as int
+                    let i_res = current_str.parse::<i64>().map_err(|_| {
+                        LexerError::IntegerParsingError {
+                            str: current_str,
+                            pos: start_pos,
+                        }
+                    })?;
+                    let i_token = Token::Int(i_res);
+                    let i_token_pos = TokenPos::new(i_token, start_pos);
+                    Ok(i_token_pos)
+                }
+            }
+            State::InDl => {
+                return Err(LexerError::MissingClosingDelimiter {
+                    open: current_open_dl,
+                    expected: expected_closing_dl,
+                    pos: start_pos,
+                });
             }
         }
-
-        // clean up any leftover characters
-        if current_str.len() > 0 {
-            match state {
-                State::Start => (),
-                State::InIdent => {
-                    tokens.push(token_with_pos(Token::Ident(current_str), current_str_pos))
-                }
-                State::InNum => tokens.push(token_with_pos(
-                    Token::parse_number(&current_str, current_str_pos)?,
-                    current_str_pos,
-                )),
-            }
-        }
-
-        // reverse it because next() reads off the top of the stack
-        tokens.reverse();
-
-        Ok(Self { tokens })
     }
 
-    fn char_to_token(c: char) -> Option<Token> {
-        match c {
-            '+' => Some(Token::Op(Operator::Add)),
-            '-' => Some(Token::Op(Operator::Sub)),
-            '*' => Some(Token::Op(Operator::Mul)),
-            '/' => Some(Token::Op(Operator::Div)),
-            '^' => Some(Token::Op(Operator::Pow)),
-            '(' => Some(Token::LParen),
-            ')' => Some(Token::RParen),
-            ',' => Some(Token::Comma),
-            _ => None,
-        }
+    pub fn set_text(&mut self, text: impl AsRef<str>) {
+        self.text = text.as_ref().into();
+        self.text_index = 0;
+        self.text_pos = TextPosition::default();
     }
+}
 
-    /// Return the next character and its position
-    pub(crate) fn next(&mut self) -> TokenWithPos {
-        self.tokens.pop().unwrap_or(EOF_TOKEN_POS)
-    }
-
-    /// Peek the next character and its position
-    pub(crate) fn peek(&self) -> TokenWithPos {
-        self.tokens.last().cloned().unwrap_or(EOF_TOKEN_POS)
+impl Default for Lexer<DefaultOps, NullDelimiter> {
+    fn default() -> Self {
+        Self::new()
     }
 }

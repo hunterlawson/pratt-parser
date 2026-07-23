@@ -1,23 +1,30 @@
 use thiserror::Error;
 
-use crate::lexer::Token;
+use crate::token::TextPosition;
 
-#[derive(Error, Debug, PartialEq)]
+#[derive(Error, Debug, PartialEq, Clone)]
 pub enum ParserError {
-    #[error("Lexer error: Malformed number at pos {pos}: `{str}`")]
-    MalformedNumber { pos: usize, str: String },
-    #[error("Lexer error: Unexpected character at pos {pos}: `{c}`")]
-    UnexpectedChar { pos: usize, c: char },
-    #[error("Parsing error: Unexpected expression prefix token: `{0}`")]
-    UnexpectedPrefixToken(Token),
-    #[error("Parsing error: Expected: `)`, got: `{0}`")]
-    MissingExprRParen(Token),
-    #[error("Parsing error: Unexpected token: `{0}`")]
-    UnexpectedToken(Token),
-    #[error("Parsing error: Reached EOF while parsing a subexpression")]
-    ReachedEOF,
-    #[error("Parsing error: Reached EOF while parsing function args")]
-    ReachedEOFArgs,
+    #[error("Lexer error while parsing")]
+    LexerError(#[from] LexerError),
+}
+
+#[derive(Error, Debug, PartialEq, Clone)]
+pub enum LexerError {
+    #[error("Unexpected string: '{str}' at {pos}")]
+    UnexpectedString { str: String, pos: TextPosition },
+    #[error("Unexpected character: '{c}' at {pos}")]
+    UnexpectedChar { c: char, pos: TextPosition },
+    #[error("Error parsing integer string: '{str}' at {pos}")]
+    IntegerParsingError { str: String, pos: TextPosition },
+    #[error("Error parsing float string: '{str}' at {pos}")]
+    FloatParsingError { str: String, pos: TextPosition },
+    #[error("Missing closing delimiter `{expected}` for opening delimiter '{open}' at {pos}")]
+    MissingClosingDelimiter {
+        open: String,
+        expected: String,
+        pos: TextPosition,
+    },
 }
 
 pub type ParserResult<T> = Result<T, ParserError>;
+pub type LexerResult<T> = Result<T, LexerError>;
