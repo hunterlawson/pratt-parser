@@ -1,6 +1,6 @@
-use std::{fmt::{Debug, Display}, hash::Hash};
+use std::fmt::{Debug, Display};
 
-use strum::IntoEnumIterator;
+use super::default_types::{Delimited, Operator};
 
 /// Represents valid tokens produced by the Lexer
 #[derive(Debug, PartialEq)]
@@ -32,26 +32,10 @@ impl Display for TextPosition {
 }
 
 /// Represents a token at the given position (line, col)
-#[derive(Debug)]
-pub struct TokenPos<O, D> {
+#[derive(Debug, PartialEq)]
+pub struct TokenPos<O: Operator, D: Delimited> {
     pub token: Token<O, D>,
     pub pos: Option<TextPosition>,
-}
-
-/// Types that implement Operator are valid operators for use by the parser
-pub trait Operator: Display + IntoEnumIterator + Clone + Copy + Debug {
-    /// Get the binding power for this operator type
-    fn binding_power(&self) -> (Option<u16>, Option<u16>);
-}
-
-/// Types that implement delimited are valid delimited types for use by the parser
-pub trait Delimited: IntoEnumIterator + PartialEq + Clone + Debug {
-    /// Get the left and right delineators for this type
-    fn delimiters(&self) -> Option<(String, String)> {
-        None
-    }
-    /// Set the value of this delimited type
-    fn set(&mut self, input: String) {}
 }
 
 impl<O, D> TokenPos<O, D>
@@ -60,7 +44,10 @@ where
     D: Delimited,
 {
     pub fn new(token: Token<O, D>, pos: TextPosition) -> Self {
-        Self { token, pos: Some(pos) }
+        Self {
+            token,
+            pos: Some(pos),
+        }
     }
 
     pub fn eof() -> Self {

@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::token::TextPosition;
+use crate::lexer::token::TextPosition;
 
 #[derive(Error, Debug, PartialEq, Clone)]
 pub enum ParserError {
