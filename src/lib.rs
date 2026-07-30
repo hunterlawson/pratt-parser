@@ -23,7 +23,7 @@ mod tests {
         fn delimiters(&self) -> Option<(String, String)> {
             Some(match self {
                 TestDelimiter::Str(_) => ("\"".into(), "\"".into()),
-                TestDelimiter::Arr(_) => ("[".into(), "]".into()),
+                TestDelimiter::Arr(_) => ("[[".into(), "]]".into()),
             })
         }
 
@@ -84,11 +84,13 @@ mod tests {
         TokenPos::new(Token::Float(f), TextPosition { line, col })
     }
 
-    #[test]
-    fn lexer_lex_testoperators_simple() {
-        let mut lexer = Lexer::<TestOperator, TestDelimiter>::new();
+    fn dl_pos<O: Operator, D: Delimited>(d: D, line: usize, col: usize) -> TokenPos<O, D> {
+        TokenPos::new(Token::Delimited(d), TextPosition { line, col })
+    }
 
-        // println!("{lexer:#?}");
+    #[test]
+    fn lexer_testoperators_simple() {
+        let mut lexer = Lexer::<TestOperator, TestDelimiter>::new();
 
         lexer.set_text("my_ident + 3 * 10-1");
         assert_eq!(lexer.next().unwrap(), ident_pos("my_ident", 1, 1));
@@ -102,10 +104,8 @@ mod tests {
     }
 
     #[test]
-    fn lexer_lex_testoperators_complex() {
+    fn lexer_testoperators_complex() {
         let mut lexer = Lexer::<TestOperator, TestDelimiter>::new();
-
-        // println!("{lexer:#?}");
 
         lexer.set_text("left >=>* right >=>$ final");
         assert_eq!(lexer.next().unwrap(), ident_pos("left", 1, 1));
@@ -117,5 +117,28 @@ mod tests {
         assert_eq!(lexer.next().unwrap(), op_pos(TestOperator::Crazy, 1, 17));
         assert_eq!(lexer.next().unwrap(), ident_pos("final", 1, 22));
         assert_eq!(lexer.next().unwrap(), TokenPos::eof())
+    }
+
+    #[test]
+    fn lexer_testdelimiter_simple() {
+        let mut lexer = Lexer::<TestOperator, TestDelimiter>::new();
+
+        lexer.set_text("[[this is my array type]]");
+        assert_eq!(
+            lexer.next().unwrap(),
+            dl_pos(TestDelimiter::Arr("this is my array type".into()), 1, 1)
+        );
+
+        lexer.set_text("\"this is my string type\"");
+        assert_eq!(
+            lexer.next().unwrap(),
+            dl_pos(TestDelimiter::Str("this is my string type".into()), 1, 1)
+        );
+
+        lexer.set_text("\"t\"");
+        assert_eq!(
+            lexer.next().unwrap(),
+            dl_pos(TestDelimiter::Str("t".into()), 1, 1)
+        );
     }
 }

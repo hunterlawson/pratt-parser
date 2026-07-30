@@ -21,21 +21,14 @@ fn valid_identifier_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
 }
 
-enum SymbolType {
-    Op,
-    Dl,
-}
-
 /// Lexer for use with the Parser struct
 #[derive(Debug)]
 pub struct Lexer<O, D = NullDelimiter> {
     op_map: HashMap<String, O>,
-    dl_l_map: HashMap<String, (D, String)>,
-    valid_symbols: HashSet<char>,
+    dl_map: HashMap<String, (D, String)>,
+    valid_symbol_chars: HashSet<char>,
     // prefix tables
     symbol_prefixes: HashSet<String>,
-    dl_l_prefixes: HashSet<String>,
-    dl_r_prefixes: HashSet<String>,
     // text information
     text: String,
     text_index: usize,
@@ -50,43 +43,42 @@ where
 {
     /// Initialize an empty lexer with the given operator and delimited type rules
     pub fn new() -> Self {
-        // Build the maps of operators and delineators
+        // build the maps of operators and delineators
         let op_map = O::iter().map(|v| (v.to_string(), v)).collect();
 
-        let dl_l_map = D::iter()
+        // map left_delimiter -> (D, right_delimiter)
+        // where D is an instance of the correct delimiter type
+        let dl_map = D::iter()
             .filter_map(|v| v.delimiters().map(|d| (d.0, (v, d.1))))
             .collect();
 
         // add every char from the operators and the delimiters
-        let mut valid_symbols: HashSet<char> = O::iter()
+        let mut valid_symbol_chars: HashSet<char> = O::iter()
             .flat_map(|o| o.to_string().chars().collect::<Vec<char>>())
             .collect();
         let delimiters: Vec<(String, String)> = D::iter().flat_map(|d| d.delimiters()).collect();
         for (left, right) in delimiters {
-            valid_symbols.extend(left.chars());
-            valid_symbols.extend(right.chars());
+            valid_symbol_chars.extend(left.chars());
+            valid_symbol_chars.extend(right.chars());
         }
 
         // build a set of valid operator and delim prefixes
-        let symbol_prefixes: HashSet<String> = O::iter()
+        let mut symbol_prefixes: HashSet<String> = O::iter()
             .flat_map(|o| string_prefixes(&o.to_string()))
             .collect();
         let dl_l_prefixes: HashSet<String> = D::iter()
             .flat_map(|d| d.delimiters())
             .flat_map(|(l, _)| string_prefixes(&l))
             .collect();
-        let dl_r_prefixes: HashSet<String> = D::iter()
-            .flat_map(|d| d.delimiters())
-            .flat_map(|(_, r)| string_prefixes(&r))
-            .collect();
+
+        // Add the left delimiter prefixes to the symbol prefix set
+        symbol_prefixes.extend(dl_l_prefixes.clone());
 
         Self {
             op_map,
-            dl_l_map,
-            valid_symbols,
+            dl_map,
+            valid_symbol_chars,
             symbol_prefixes,
-            dl_l_prefixes,
-            dl_r_prefixes,
             text: String::new(),
             text_index: 0,
             text_pos: TextPosition::default(),
@@ -110,11 +102,6 @@ where
     /// Peek a specific char with the given offset from the current char
     fn peek_char_offset(&self, offset: usize) -> Option<char> {
         self.text.chars().nth(self.text_index + offset)
-    }
-
-    /// Peek the next character in the text if it exists
-    fn next_char(&self) -> Option<char> {
-        self.peek_char_offset(1)
     }
 
     /// Peek the current character in the text if it exists
@@ -146,13 +133,15 @@ where
         while let Some(c) = self.current_char()
             && c.is_whitespace()
         {
-            println!(
-                "Skipping whitespace `{}` at i={}",
-                c.escape_debug().collect::<String>(),
-                self.text_index
-            );
             self.consume_char();
         }
+    }
+
+    /// Return if the given character is valid to start any token
+    ///
+    /// valid: valid_symbol_chars, alphanumeric characters and '_'
+    fn valid_token_starting_char(&self, c: char) -> bool {
+        self.valid_symbol_chars.contains(&c) || valid_identifier_char(c)
     }
 
     fn next_token(&mut self) -> LexerResult<TokenPos<O, D>> {
@@ -163,12 +152,10 @@ where
         };
 
         return match c {
-            _ if !self.valid_symbols.contains(&c) && !valid_identifier_char(c) => {
-                Err(LexerError::UnexpectedChar {
-                    c,
-                    pos: self.text_pos,
-                })
-            }
+            _ if !self.valid_token_starting_char(c) => Err(LexerError::UnexpectedChar {
+                c,
+                pos: self.text_pos,
+            }),
             _ if c.is_numeric() => self.resolve_num(),
             _ if self.symbol_prefixes.contains(&String::from(c)) => self.resolve_symbol(),
             _ => self.resolve_ident(),
@@ -211,12 +198,22 @@ where
             }
         }
 
-        // println!("{:#?}", prefixes);
-
         // iterate through the found prefixes and return the largest one that
-        // is a valid operator
+        // is a valid operator or a valid left delimiter
         prefixes.reverse();
         for p in prefixes {
+            // if it's a valid left delimiter
+            if let Some((d, r)) = self.dl_map.get(&p) {
+                let d = d.clone();
+                let r = r.clone();
+                // Consume the left delimiter
+                for _ in 0..p.len() {
+                    self.consume_char();
+                }
+                return self.resolve_delim(d, p.clone(), r, start_pos);
+            }
+
+            // check if it's a valid operator otherwise continue to the next iter
             let Some(o) = self.op_map.get(&p) else {
                 continue;
             };
@@ -230,6 +227,46 @@ where
 
         Err(LexerError::UnexpectedString {
             str: symbol,
+            pos: start_pos,
+        })
+    }
+
+    /// Resolve a delimited type given the delimiter and the correct right-delimiter string
+    fn resolve_delim(
+        &mut self,
+        mut d: D,
+        l: String,
+        r: String,
+        l_dl_pos: TextPosition,
+    ) -> LexerResult<TokenPos<O, D>> {
+        let start_pos = l_dl_pos;
+        let mut dl_value = String::new();
+        let mut found_closing = false;
+
+        // consume characters until we've hit a valid right delimiter for this type
+        while let Some(c) = self.current_char() {
+            dl_value.push(c);
+            self.consume_char();
+
+            if dl_value.ends_with(&r) {
+                found_closing = true;
+                break;
+            }
+        }
+
+        if found_closing {
+            // remove the closing right delimiter from the string before storing it in the type
+            dl_value = dl_value.replace(&r, "");
+            d.set(dl_value);
+            return Ok(TokenPos {
+                token: Token::Delimited(d),
+                pos: Some(start_pos),
+            });
+        }
+
+        Err(LexerError::MissingClosingDelimiter {
+            open: l,
+            expected: r,
             pos: start_pos,
         })
     }
@@ -268,153 +305,6 @@ where
             Ok(TokenPos::new(Token::Int(int_res), start_pos))
         }
     }
-
-    /// Get the next token from the current text
-    // fn next_token(&mut self) -> LexerResult<TokenPos<O, D>> {
-    //     #[derive(PartialEq)]
-    //     enum State {
-    //         Start,
-    //         InIdent,
-    //         InNum,
-    //         InDl,
-    //         InOp,
-    //     }
-    //     // skip any starting whitespace
-    //     self.skip_non_whitespace();
-
-    //     let start_pos = self.text_pos;
-    //     let mut current_str = String::new();
-    //     let mut current_state = State::Start;
-    //     let mut current_open_dl = String::new();
-    //     let mut expected_closing_dl = String::new();
-
-    //     while let Some(c) = self.current_char() {
-    //         // check if the current_str + next is a valid prefix
-    //         if self.op_prefixes.contains(&current_str) {
-    //             current_state = State::InOp;
-    //         }
-
-    //         // check if the current_str matches any starting delimiters
-    //         // ignore if we're already inside a delimited type
-    //         // this lexer does not handle nexted delimited types - you would need to build another lexer
-    //         // to parse the string inside the first type
-    //         if let Some((_, s)) = self.dl_l_map.get(&current_str)
-    //             && current_state == State::Start
-    //         {
-    //             current_open_dl = current_str.clone();
-    //             expected_closing_dl = s.clone();
-    //             current_str = String::new();
-    //             current_state = State::InDl;
-    //         }
-
-    //         // break if whitespace
-    //         if c.is_whitespace() && current_state != State::InDl {
-    //             break;
-    //         }
-
-    //         match current_state {
-    //             State::Start => {
-    //                 current_str.push(c);
-    //                 match c {
-    //                     _ if c.is_alphabetic() => current_state = State::InIdent,
-    //                     _ if c.is_numeric() => current_state = State::InNum,
-    //                     c if !self.valid_symbols.contains(&c) => {
-    //                         return Err(LexerError::UnexpectedChar {
-    //                             c,
-    //                             pos: self.text_pos,
-    //                         });
-    //                     }
-    //                     _ => (),
-    //                 }
-    //             }
-    //             State::InIdent => match c {
-    //                 c if c.is_alphanumeric() => current_str.push(c),
-    //                 _ => break,
-    //             },
-    //             State::InNum => match c {
-    //                 c if c.is_numeric() || c == '.' => current_str.push(c),
-    //                 _ => break,
-    //             },
-    //             State::InOp => {}
-    //             State::InDl => {
-    //                 current_str.push(c);
-    //                 if current_str.ends_with(&expected_closing_dl) {
-    //                     // return the delimited type
-    //                     let dl_str = current_str
-    //                         .trim_end_matches(&expected_closing_dl)
-    //                         .to_string();
-    //                     let mut dl = self
-    //                         .dl_l_map
-    //                         .get(&current_open_dl)
-    //                         .expect("guaranteed")
-    //                         .0
-    //                         .clone();
-
-    //                     dl.set(dl_str);
-    //                     let dl_token = Token::Delimited(dl);
-    //                     let dl_token_pos = TokenPos::new(dl_token, start_pos);
-    //                     self.consume_char(); // consume the delimiter
-    //                     return Ok(dl_token_pos);
-    //                 }
-    //             }
-    //         }
-
-    //         self.consume_char();
-    //     }
-
-    //     // Output a token from the string depending on the current state
-    //     return match current_state {
-    //         State::Start => {
-    //             if current_str.len() == 0 {
-    //                 Ok(TokenPos::eof())
-    //             } else {
-    //                 Err(LexerError::UnexpectedString {
-    //                     str: current_str,
-    //                     pos: start_pos,
-    //                 })
-    //             }
-    //         }
-    //         State::InIdent => {
-    //             let ident_token = Token::Ident(current_str);
-    //             let ident_token_pos = TokenPos::new(ident_token, start_pos);
-    //             Ok(ident_token_pos)
-    //         }
-    //         State::InNum => {
-    //             if current_str.contains('.') {
-    //                 // parse as float
-    //                 let f_res =
-    //                     current_str
-    //                         .parse::<f64>()
-    //                         .map_err(|_| LexerError::FloatParsingError {
-    //                             str: current_str,
-    //                             pos: start_pos,
-    //                         })?;
-    //                 let f_token = Token::Float(f_res);
-    //                 let f_token_pos = TokenPos::new(f_token, start_pos);
-    //                 Ok(f_token_pos)
-    //             } else {
-    //                 // parse as int
-    //                 let i_res = current_str.parse::<i64>().map_err(|_| {
-    //                     LexerError::IntegerParsingError {
-    //                         str: current_str,
-    //                         pos: start_pos,
-    //                     }
-    //                 })?;
-    //                 let i_token = Token::Int(i_res);
-    //                 let i_token_pos = TokenPos::new(i_token, start_pos);
-    //                 Ok(i_token_pos)
-    //             }
-    //         }
-    //         State::InOp => {
-    //             todo!()
-    //         }
-    //         State::InDl => Err(LexerError::MissingClosingDelimiter {
-    //             open: current_open_dl,
-    //             expected: expected_closing_dl,
-    //             pos: start_pos,
-    //         }),
-    //     };
-    // }
 
     pub fn set_text(&mut self, text: impl AsRef<str>) {
         self.text = text.as_ref().into();
