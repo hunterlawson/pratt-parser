@@ -1,7 +1,13 @@
+//! Pratt parser
+
+#![warn(missing_docs)]
+#![warn(rustdoc::broken_intra_doc_links)]
+
 mod error;
 mod lexer;
 
 pub use error::*;
+pub use lexer::*;
 
 #[cfg(test)]
 mod tests {
@@ -9,8 +15,8 @@ mod tests {
 
     use crate::lexer::{
         Lexer,
-        default_types::{DefaultOperators, Delimited, Operator},
-        token::{TextPosition, Token, TokenPos},
+        default_types::{DefaultOperators, Delimiter, Operator},
+        token::{TextPos, Token, TokenPos},
     };
 
     #[derive(Clone, PartialEq, EnumIter, Debug)]
@@ -19,7 +25,7 @@ mod tests {
         Arr(String),
     }
 
-    impl Delimited for TestDelimiter {
+    impl Delimiter for TestDelimiter {
         fn delimiters(&self) -> Option<(String, String)> {
             Some(match self {
                 TestDelimiter::Str(_) => ("\"".into(), "\"".into()),
@@ -57,7 +63,7 @@ mod tests {
         }
     }
 
-    fn print_next_token<O: Operator, D: Delimited>(lexer: &mut Lexer<O, D>) {
+    fn print_next_token<O: Operator, D: Delimiter>(lexer: &mut Lexer<O, D>) {
         let res = lexer.next();
         match res {
             Ok(t) => match t.pos {
@@ -68,24 +74,24 @@ mod tests {
         }
     }
 
-    fn op_pos<O: Operator, D: Delimited>(op: O, line: usize, col: usize) -> TokenPos<O, D> {
-        TokenPos::new(Token::Op(op), TextPosition { line, col })
+    fn op_pos<O: Operator, D: Delimiter>(op: O, line: usize, col: usize) -> TokenPos<O, D> {
+        TokenPos::new(Token::Op(op), TextPos { line, col })
     }
 
-    fn ident_pos<O: Operator, D: Delimited>(s: &str, line: usize, col: usize) -> TokenPos<O, D> {
-        TokenPos::new(Token::Ident(s.into()), TextPosition { line, col })
+    fn ident_pos<O: Operator, D: Delimiter>(s: &str, line: usize, col: usize) -> TokenPos<O, D> {
+        TokenPos::new(Token::Ident(s.into()), TextPos { line, col })
     }
 
-    fn int_pos<O: Operator, D: Delimited>(i: i64, line: usize, col: usize) -> TokenPos<O, D> {
-        TokenPos::new(Token::Int(i), TextPosition { line, col })
+    fn int_pos<O: Operator, D: Delimiter>(i: i64, line: usize, col: usize) -> TokenPos<O, D> {
+        TokenPos::new(Token::Int(i), TextPos { line, col })
     }
 
-    fn float_pos<O: Operator, D: Delimited>(f: f64, line: usize, col: usize) -> TokenPos<O, D> {
-        TokenPos::new(Token::Float(f), TextPosition { line, col })
+    fn float_pos<O: Operator, D: Delimiter>(f: f64, line: usize, col: usize) -> TokenPos<O, D> {
+        TokenPos::new(Token::Float(f), TextPos { line, col })
     }
 
-    fn dl_pos<O: Operator, D: Delimited>(d: D, line: usize, col: usize) -> TokenPos<O, D> {
-        TokenPos::new(Token::Delimited(d), TextPosition { line, col })
+    fn dl_pos<O: Operator, D: Delimiter>(d: D, line: usize, col: usize) -> TokenPos<O, D> {
+        TokenPos::new(Token::Delimited(d), TextPos { line, col })
     }
 
     #[test]

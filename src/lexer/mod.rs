@@ -1,29 +1,127 @@
 pub mod default_types;
 pub mod token;
 
+pub use default_types::{DefaultOperators, Delimiter, NullDelimiter, Operator};
+pub use token::*;
+
 use std::collections::{HashMap, HashSet};
 
 use crate::{LexerError, LexerResult};
-use default_types::{DefaultOperators, Delimited, NullDelimiter, Operator};
-use token::{TextPosition, Token, TokenPos};
 
-fn string_prefixes(s: &String) -> Vec<String> {
-    s.char_indices()
-        .flat_map(|(i, _)| s.get(..=i))
-        .map(|s| String::from(s))
-        .collect()
-}
-
-/// Return whether the given character is allowed inside an identifier
+/// Lexer for converting raw text into tokens defined by the Operator and Delimited types
 ///
-/// Identifiers can contain alphanumeric characters and underscores `_`
-fn valid_identifier_char(c: char) -> bool {
-    c.is_alphanumeric() || c == '_'
-}
-
-/// Lexer for use with the Parser struct
+/// - `O` - the operator type. Must implement [`Operator`], which defines how operators
+///     are recognized and tokenized.
+/// - `D` - the delimiter type. Must implement [`Delimiter`], which defines how delimited
+///     types (types with a left and right bounds like `"strings"`) are tokenized.
+///
+/// # Examples
+///
+/// ## Using the default operators
+///
+/// The implementation of [`Default`] gives a lexer that uses the [`DefaultOperators`] operator
+/// type with a null delimiter type [`NullDelimiter`]. You should never have to use the null
+/// delimiter type directly. It's a placeholder that means there is no delimiter parsing
+/// by default.
+///
+/// ```
+/// use pratt_parser::{Lexer, Token, TokenPos, TextPos, DefaultOperators};
+///
+/// // Use the default Lexer with the default operators
+/// let mut my_lexer = Lexer::default();
+/// my_lexer.set_text("z^2");
+/// assert_eq!(
+///     my_lexer.next().unwrap().token,
+///     Token::Ident("z".into()),
+/// );
+/// assert_eq!(
+///     my_lexer.next().unwrap().token,
+///     Token::Op(DefaultOperators::Pow),
+/// );
+/// assert_eq!(
+///     my_lexer.next().unwrap().token,
+///     Token::Int(2),
+/// );
+/// assert_eq!(
+///     my_lexer.next().unwrap().token,
+///     Token::Eof,
+/// );
+/// ```
+///
+/// ## Using custom operators and delimiter types
+///
+/// You can implement the [`Operator`] and [`Delimiter`] traits with your custom types to
+/// determine what the lexer will output and the rules for converting characters to tokens.
+///
+/// ```
+/// use pratt_parser::{Operator, Delimiter, Lexer, Token, TokenPos, TextPos};
+/// use strum::{Display, EnumIter};
+///
+/// // Custom delimited type to parse "strings"
+/// #[derive(Clone, PartialEq, EnumIter, Debug)]
+/// enum MyDelimiter {
+///     Str(String),
+/// }
+///
+/// impl Delimiter for MyDelimiter {
+///     fn delimiters(&self) -> Option<(String, String)> {
+///         Some(match self {
+///             MyDelimiter::Str(_) => ("\"".into(), "\"".into()),
+///         })
+///     }
+///
+///     fn set(&mut self, input: String) {
+///         match self {
+///             MyDelimiter::Str(x) => *x = input,
+///         }
+///     }
+/// }
+///
+/// // Custom operator type
+/// #[derive(Debug, Clone, Copy, EnumIter, Display, PartialEq)]
+/// enum MyOperator {
+///     #[strum(to_string = "<--")]
+///     LeftArrow,
+///     #[strum(to_string = "-->")]
+///     RightArrow,
+/// }
+///
+/// impl Operator for MyOperator {}
+///
+/// // Create lexer with the custom types
+/// let mut my_lexer = Lexer::<MyOperator, MyDelimiter>::new();
+/// my_lexer.set_text("-->\"Hello, world!\"<--");
+/// assert_eq!(
+///     my_lexer.next().unwrap().token, 
+///     Token::Op(MyOperator::RightArrow)
+/// );
+/// assert_eq!(
+///     my_lexer.next().unwrap().token, 
+///     Token::Delimited(MyDelimiter::Str("Hello, world!".into()))
+/// );
+/// assert_eq!(
+///     my_lexer.next().unwrap().token, 
+///     Token::Op(MyOperator::LeftArrow)
+/// );
+/// 
+/// // You can also just name a custom operator if you don't need a delimiter type
+/// let mut my_lexer = Lexer::<MyOperator>::new();
+/// my_lexer.set_text("-->100<--");
+/// assert_eq!(
+///     my_lexer.next().unwrap().token, 
+///     Token::Op(MyOperator::RightArrow)
+/// );
+/// assert_eq!(
+///     my_lexer.next().unwrap().token, 
+///     Token::Int(100)
+/// );
+/// assert_eq!(
+///     my_lexer.next().unwrap().token, 
+///     Token::Op(MyOperator::LeftArrow)
+/// );
+/// ```
 #[derive(Debug)]
-pub struct Lexer<O: Operator, D: Delimited = NullDelimiter> {
+pub struct Lexer<O: Operator, D: Delimiter = NullDelimiter> {
     op_map: HashMap<String, O>,
     dl_l_map: HashMap<String, (D, String)>,
     valid_symbol_chars: HashSet<char>,
@@ -32,7 +130,7 @@ pub struct Lexer<O: Operator, D: Delimited = NullDelimiter> {
     // text information
     text: String,
     text_index: usize,
-    text_pos: TextPosition,
+    text_pos: TextPos,
     current_err: Option<LexerError>,
     // cached values
     cached_tokens: Option<Vec<TokenPos<O, D>>>,
@@ -41,9 +139,11 @@ pub struct Lexer<O: Operator, D: Delimited = NullDelimiter> {
 impl<O, D> Lexer<O, D>
 where
     O: Operator,
-    D: Delimited,
+    D: Delimiter,
 {
-    /// Initialize an empty lexer with the given operator and delimited type rules
+    /// Initialize an empty lexer with the given operator and delimited types.
+    /// 
+    /// See [`Lexer`] for examples.
     pub fn new() -> Self {
         // build the maps of operators and delineators
         let op_map = O::iter().map(|v| (v.to_string(), v)).collect();
@@ -82,12 +182,38 @@ where
             symbol_prefixes,
             text: String::new(),
             text_index: 0,
-            text_pos: TextPosition::default(),
+            text_pos: TextPos::default(),
             current_err: None,
             cached_tokens: None,
         }
     }
 
+    /// Get the next token from the input text. Advances the internal token position.
+    /// 
+    /// # Examples
+    /// 
+    /// ```
+    /// use pratt_parser::{Lexer, Token, DefaultOperators};
+    /// 
+    /// let mut my_lexer = Lexer::default();
+    /// my_lexer.set_text("1 + 3.14");
+    /// assert_eq!(
+    ///     my_lexer.next().unwrap().token,
+    ///     Token::Int(1),
+    /// );
+    /// assert_eq!(
+    ///     my_lexer.next().unwrap().token,
+    ///     Token::Op(DefaultOperators::Add),
+    /// );
+    /// assert_eq!(
+    ///     my_lexer.next().unwrap().token,
+    ///     Token::Float(3.14),
+    /// );
+    /// assert_eq!(
+    ///     my_lexer.next().unwrap().token,
+    ///     Token::Eof,
+    /// );
+    /// ```
     pub fn next(&mut self) -> LexerResult<TokenPos<O, D>> {
         if let Some(e) = &self.current_err {
             return Err(e.clone());
@@ -241,7 +367,7 @@ where
         mut d: D,
         l: String,
         r: String,
-        l_dl_pos: TextPosition,
+        l_dl_pos: TextPos,
     ) -> LexerResult<TokenPos<O, D>> {
         let start_pos = l_dl_pos;
         let mut dl_value = String::new();
@@ -311,9 +437,35 @@ where
     }
 
     /// Attempt to lex the entire input string into tokens. Reads until EOF is reached. The last
-    /// token of the vector will be a `TokenPos::Eof`
+    /// token of the vector will be a `TokenPos::Eof`.
     ///
-    /// Resets the internal token position used by `next`
+    /// Resets the internal token position used by `next`.
+    /// 
+    /// # Examples
+    /// 
+    /// ```
+    /// use pratt_parser::{Lexer, Token, DefaultOperators};
+    /// 
+    /// let mut my_lexer = Lexer::default();
+    /// my_lexer.set_text("1 + 3.14");
+    /// let tokens = my_lexer.lex_all().unwrap();
+    /// assert_eq!(
+    ///     tokens[0].token,
+    ///     Token::Int(1),
+    /// );
+    /// assert_eq!(
+    ///     tokens[1].token,
+    ///     Token::Op(DefaultOperators::Add),
+    /// );
+    /// assert_eq!(
+    ///     tokens[2].token,
+    ///     Token::Float(3.14),
+    /// );
+    /// assert_eq!(
+    ///     tokens[3].token,
+    ///     Token::Eof,
+    /// );
+    /// ```
     pub fn lex_all(&mut self) -> LexerResult<Vec<TokenPos<O, D>>> {
         if let Some(e) = &self.current_err {
             return Err(e.clone());
@@ -351,9 +503,23 @@ where
 
     fn reset_position(&mut self) {
         self.text_index = 0;
-        self.text_pos = TextPosition::default();
+        self.text_pos = TextPos::default();
     }
 
+    /// Set the text for the [`Lexer`]. This resets the lexer and any cached values.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use pratt_parser::Lexer;
+    ///
+    /// let mut my_lexer = Lexer::default();
+    /// my_lexer.set_text("here is some text");
+    /// assert_eq!(my_lexer.text(), "here is some text");
+    ///
+    /// my_lexer.set_text(String::from("here is a String"));
+    /// assert_eq!(my_lexer.text(), "here is a String");
+    /// ```
     pub fn set_text(&mut self, text: impl AsRef<str>) {
         self.current_err = None;
         self.cached_tokens = None;
@@ -361,14 +527,43 @@ where
         self.reset_position();
     }
 
-    /// Get a reference to the underlying text
+    /// Get a reference to the underlying text in the [`Lexer`]
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use pratt_parser::Lexer;
+    ///
+    /// let mut my_lexer = Lexer::default();
+    /// my_lexer.set_text("here is some text");
+    /// assert_eq!(my_lexer.text(), "here is some text");
+    /// ```
     pub fn text(&self) -> &str {
         &self.text
     }
 }
 
 impl Default for Lexer<DefaultOperators, NullDelimiter> {
+    /// Create a default [`Lexer`] with the default operator type
+    /// [`DefaultOperators`] and a null delimiter.
+    /// See the [`Lexer`] documentation for more details.
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Get all prefixes for a given string (excluding the empty prefix "" and
+/// including the entire string itself)
+fn string_prefixes(s: &String) -> Vec<String> {
+    s.char_indices()
+        .flat_map(|(i, _)| s.get(..=i))
+        .map(|s| String::from(s))
+        .collect()
+}
+
+/// Return whether the given character is allowed inside an identifier
+///
+/// Identifiers can contain alphanumeric characters and underscores `_`
+fn valid_identifier_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
 }

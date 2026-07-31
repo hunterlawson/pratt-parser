@@ -5,11 +5,13 @@ use strum::{Display, EnumIter, IntoEnumIterator};
 /// Enums that implement Operator are valid operators for use by the parser
 pub trait Operator: Display + IntoEnumIterator + Clone + Copy + Debug + PartialEq {
     /// Get the binding power for this operator type
-    fn binding_power(&self) -> (Option<u16>, Option<u16>);
+    fn binding_power(&self) -> (Option<u16>, Option<u16>) {
+        (None, None)
+    }
 }
 
 /// Enums that implement delimited are valid delimited types for use by the parser
-pub trait Delimited: IntoEnumIterator + PartialEq + Clone + Debug {
+pub trait Delimiter: IntoEnumIterator + PartialEq + Clone + Debug {
     /// Get the left and right delineators for this type
     fn delimiters(&self) -> Option<(String, String)> {
         None
@@ -32,6 +34,8 @@ pub enum DefaultOperators {
     Div,
     #[strum(to_string = "%")]
     Mod,
+    #[strum(to_string = "^")]
+    Pow,
     // comparison
     #[strum(to_string = "==")]
     Eq,
@@ -54,12 +58,9 @@ pub enum DefaultOperators {
     Not,
 }
 
-impl Operator for DefaultOperators {
-    fn binding_power(&self) -> (Option<u16>, Option<u16>) {
-        (None, None)
-    }
-}
+impl Operator for DefaultOperators {}
+
 /// Null delimited type
 #[derive(EnumIter, Debug, PartialEq, Clone)]
 pub enum NullDelimiter {}
-impl Delimited for NullDelimiter {}
+impl Delimiter for NullDelimiter {}
