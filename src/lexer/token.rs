@@ -1,9 +1,11 @@
 use std::fmt::{Debug, Display};
 
+use strum::EnumIs;
+
 use super::default_types::{Delimited, Operator};
 
 /// Represents valid tokens produced by the Lexer
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, EnumIs, Clone)]
 pub enum Token<O, D> {
     Int(i64),
     Float(f64),
@@ -32,7 +34,7 @@ impl Display for TextPosition {
 }
 
 /// Represents a token at the given position (line, col)
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct TokenPos<O: Operator, D: Delimited> {
     pub token: Token<O, D>,
     pub pos: Option<TextPosition>,

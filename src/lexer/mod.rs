@@ -23,9 +23,9 @@ fn valid_identifier_char(c: char) -> bool {
 
 /// Lexer for use with the Parser struct
 #[derive(Debug)]
-pub struct Lexer<O, D = NullDelimiter> {
+pub struct Lexer<O: Operator, D: Delimited = NullDelimiter> {
     op_map: HashMap<String, O>,
-    dl_map: HashMap<String, (D, String)>,
+    dl_l_map: HashMap<String, (D, String)>,
     valid_symbol_chars: HashSet<char>,
     // prefix tables
     symbol_prefixes: HashSet<String>,
@@ -34,6 +34,8 @@ pub struct Lexer<O, D = NullDelimiter> {
     text_index: usize,
     text_pos: TextPosition,
     current_err: Option<LexerError>,
+    // cached values
+    cached_tokens: Option<Vec<TokenPos<O, D>>>,
 }
 
 impl<O, D> Lexer<O, D>
@@ -48,7 +50,7 @@ where
 
         // map left_delimiter -> (D, right_delimiter)
         // where D is an instance of the correct delimiter type
-        let dl_map = D::iter()
+        let dl_l_map = D::iter()
             .filter_map(|v| v.delimiters().map(|d| (d.0, (v, d.1))))
             .collect();
 
@@ -57,32 +59,32 @@ where
             .flat_map(|o| o.to_string().chars().collect::<Vec<char>>())
             .collect();
         let delimiters: Vec<(String, String)> = D::iter().flat_map(|d| d.delimiters()).collect();
-        for (left, right) in delimiters {
-            valid_symbol_chars.extend(left.chars());
-            valid_symbol_chars.extend(right.chars());
+        for (l, r) in delimiters {
+            valid_symbol_chars.extend(l.chars());
+            valid_symbol_chars.extend(r.chars());
         }
 
         // build a set of valid operator and delim prefixes
         let mut symbol_prefixes: HashSet<String> = O::iter()
             .flat_map(|o| string_prefixes(&o.to_string()))
             .collect();
+        // Add the left delimiter prefixes to the symbol prefix set
         let dl_l_prefixes: HashSet<String> = D::iter()
             .flat_map(|d| d.delimiters())
             .flat_map(|(l, _)| string_prefixes(&l))
             .collect();
-
-        // Add the left delimiter prefixes to the symbol prefix set
         symbol_prefixes.extend(dl_l_prefixes.clone());
 
         Self {
             op_map,
-            dl_map,
+            dl_l_map,
             valid_symbol_chars,
             symbol_prefixes,
             text: String::new(),
             text_index: 0,
             text_pos: TextPosition::default(),
             current_err: None,
+            cached_tokens: None,
         }
     }
 
@@ -107,6 +109,12 @@ where
     /// Peek the current character in the text if it exists
     fn current_char(&self) -> Option<char> {
         self.peek_char_offset(0)
+    }
+
+    fn consume_chars(&mut self, num: usize) {
+        for _ in 0..num {
+            self.consume_char();
+        }
     }
 
     /// Consume the next char in the text by incrementing the index by 1
@@ -203,14 +211,12 @@ where
         prefixes.reverse();
         for p in prefixes {
             // if it's a valid left delimiter
-            if let Some((d, r)) = self.dl_map.get(&p) {
+            if let Some((d, r)) = self.dl_l_map.get(&p) {
                 let d = d.clone();
                 let r = r.clone();
                 // Consume the left delimiter
-                for _ in 0..p.len() {
-                    self.consume_char();
-                }
-                return self.resolve_delim(d, p.clone(), r, start_pos);
+                self.consume_chars(p.len());
+                return self.resolve_dl(d, p.clone(), r, start_pos);
             }
 
             // check if it's a valid operator otherwise continue to the next iter
@@ -219,9 +225,7 @@ where
             };
             let o = o.clone();
             // consume all the characters in the prefix
-            for _ in 0..p.len() {
-                self.consume_char();
-            }
+            self.consume_chars(p.len());
             return Ok(TokenPos::new(Token::Op(o), start_pos));
         }
 
@@ -232,7 +236,7 @@ where
     }
 
     /// Resolve a delimited type given the delimiter and the correct right-delimiter string
-    fn resolve_delim(
+    fn resolve_dl(
         &mut self,
         mut d: D,
         l: String,
@@ -306,10 +310,60 @@ where
         }
     }
 
-    pub fn set_text(&mut self, text: impl AsRef<str>) {
-        self.text = text.as_ref().into();
+    /// Attempt to lex the entire input string into tokens. Reads until EOF is reached. The last
+    /// token of the vector will be a `TokenPos::Eof`
+    ///
+    /// Resets the internal token position used by `next`
+    pub fn lex_all(&mut self) -> LexerResult<Vec<TokenPos<O, D>>> {
+        if let Some(e) = &self.current_err {
+            return Err(e.clone());
+        }
+
+        if let Some(v) = &self.cached_tokens {
+            return Ok(v.clone());
+        }
+
+        let v = self.lex_all_tokens()?;
+        self.cached_tokens = Some(v.clone());
+
+        Ok(v)
+    }
+
+    fn lex_all_tokens(&mut self) -> LexerResult<Vec<TokenPos<O, D>>> {
+        self.reset_position();
+
+        let mut tokens = vec![];
+        let mut reached_eof = false;
+        loop {
+            let tp = self.next()?;
+            if tp.token.is_eof() {
+                reached_eof = true;
+            }
+            tokens.push(tp);
+
+            if reached_eof {
+                break;
+            }
+        }
+
+        Ok(tokens)
+    }
+
+    fn reset_position(&mut self) {
         self.text_index = 0;
         self.text_pos = TextPosition::default();
+    }
+
+    pub fn set_text(&mut self, text: impl AsRef<str>) {
+        self.current_err = None;
+        self.cached_tokens = None;
+        self.text = text.as_ref().into();
+        self.reset_position();
+    }
+
+    /// Get a reference to the underlying text
+    pub fn text(&self) -> &str {
+        &self.text
     }
 }
 

@@ -104,6 +104,43 @@ mod tests {
     }
 
     #[test]
+    fn lexer_testoperators_lex_all() {
+        let mut lexer = Lexer::<TestOperator, TestDelimiter>::new();
+
+        lexer.set_text("my_ident + 3 * 10-1");
+        let tokens = lexer.lex_all().unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                ident_pos("my_ident", 1, 1),
+                op_pos(TestOperator::Add, 1, 10),
+                int_pos(3, 1, 12),
+                op_pos(TestOperator::Mul, 1, 14),
+                int_pos(10, 1, 16),
+                op_pos(TestOperator::Sub, 1, 18),
+                int_pos(1, 1, 19),
+                TokenPos::eof(),
+            ]
+        );
+
+        // try again
+        let tokens = lexer.lex_all().unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                ident_pos("my_ident", 1, 1),
+                op_pos(TestOperator::Add, 1, 10),
+                int_pos(3, 1, 12),
+                op_pos(TestOperator::Mul, 1, 14),
+                int_pos(10, 1, 16),
+                op_pos(TestOperator::Sub, 1, 18),
+                int_pos(1, 1, 19),
+                TokenPos::eof(),
+            ]
+        );
+    }
+
+    #[test]
     fn lexer_testoperators_complex() {
         let mut lexer = Lexer::<TestOperator, TestDelimiter>::new();
 
@@ -116,6 +153,23 @@ mod tests {
         assert_eq!(lexer.next().unwrap(), ident_pos("right", 1, 11));
         assert_eq!(lexer.next().unwrap(), op_pos(TestOperator::Crazy, 1, 17));
         assert_eq!(lexer.next().unwrap(), ident_pos("final", 1, 22));
+        assert_eq!(lexer.next().unwrap(), TokenPos::eof())
+    }
+
+    #[test]
+    fn lexer_defaultops() {
+        let mut lexer = Lexer::default();
+
+        lexer.set_text("my_ident + 3 * 10-1>=10.2");
+        assert_eq!(lexer.next().unwrap(), ident_pos("my_ident", 1, 1));
+        assert_eq!(lexer.next().unwrap(), op_pos(DefaultOperators::Add, 1, 10));
+        assert_eq!(lexer.next().unwrap(), int_pos(3, 1, 12));
+        assert_eq!(lexer.next().unwrap(), op_pos(DefaultOperators::Mul, 1, 14));
+        assert_eq!(lexer.next().unwrap(), int_pos(10, 1, 16));
+        assert_eq!(lexer.next().unwrap(), op_pos(DefaultOperators::Sub, 1, 18));
+        assert_eq!(lexer.next().unwrap(), int_pos(1, 1, 19));
+        assert_eq!(lexer.next().unwrap(), op_pos(DefaultOperators::Gte, 1, 20));
+        assert_eq!(lexer.next().unwrap(), float_pos(10.2, 1, 22));
         assert_eq!(lexer.next().unwrap(), TokenPos::eof())
     }
 
@@ -139,6 +193,30 @@ mod tests {
         assert_eq!(
             lexer.next().unwrap(),
             dl_pos(TestDelimiter::Str("t".into()), 1, 1)
+        );
+    }
+
+    #[test]
+    fn lexer_testdelimiter_complex() {
+        let mut lexer = Lexer::<TestOperator, TestDelimiter>::new();
+
+        lexer.set_text("[[this is my array type]]\"and a string\"[[\"this is still an array\"]]");
+        assert_eq!(
+            lexer.next().unwrap(),
+            dl_pos(TestDelimiter::Arr("this is my array type".into()), 1, 1)
+        );
+
+        assert_eq!(
+            lexer.next().unwrap(),
+            dl_pos(TestDelimiter::Str("and a string".into()), 1, 26)
+        );
+        assert_eq!(
+            lexer.next().unwrap(),
+            dl_pos(
+                TestDelimiter::Arr("\"this is still an array\"".into()),
+                1,
+                40
+            )
         );
     }
 }
