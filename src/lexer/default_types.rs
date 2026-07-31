@@ -17,43 +17,60 @@ pub trait Delimiter: IntoEnumIterator + PartialEq + Clone + Debug {
         None
     }
     /// Set the value of this delimited type
-    fn set(&mut self, input: String) {}
+    fn set(&mut self, input: String) {
+        let _ = input;
+    }
 }
 
 /// Default operator type
 #[derive(Display, EnumIter, PartialEq, Eq, Hash, Debug, Clone, Copy)]
 pub enum DefaultOperators {
-    // arithmetic
+    // ----------- arithmetic -----------
+    /// `"+"`
     #[strum(to_string = "+")]
     Add,
+    /// `"-"`
     #[strum(to_string = "-")]
     Sub,
+    /// `"*"`
     #[strum(to_string = "*")]
     Mul,
+    /// `"/"`
     #[strum(to_string = "/")]
     Div,
+    /// `"%"`
     #[strum(to_string = "%")]
     Mod,
+    /// `"^"`
     #[strum(to_string = "^")]
     Pow,
-    // comparison
+    // ----------- comparison -----------
+    /// `"=="`
     #[strum(to_string = "==")]
     Eq,
+    /// `"!="`
     #[strum(to_string = "!=")]
     Neq,
+    /// `">"`
     #[strum(to_string = ">")]
     Gt,
+    /// `"<"`
     #[strum(to_string = "<")]
     Lt,
+    /// `">="`
     #[strum(to_string = ">=")]
     Gte,
+    /// `"<="`
     #[strum(to_string = "<=")]
     Lte,
-    // logical
+    // ----------- logical -----------
+    /// `"&&"`
     #[strum(to_string = "&&")]
     And,
+    /// `"||"`
     #[strum(to_string = "||")]
     Or,
+    /// `"!"`
     #[strum(to_string = "!")]
     Not,
 }

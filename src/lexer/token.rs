@@ -5,10 +5,10 @@ use strum::EnumIs;
 use super::default_types::{Delimiter, Operator};
 
 /// Represents valid tokens produced by the Lexer
-/// 
+///
 /// `O` and `D` are the [`Operator`] and [`Delimiter`] types.
 /// See [`Lexer`][super::Lexer] for examples.
-/// 
+///
 /// - `Int(i64)` - Integer types: "256", "100", etc.
 /// - `Float(f64)` - Float types: "3.14", "0.0001", etc.
 /// - `Ident(String)` - Identifiers: "hello", "my_identifier23", etc.
@@ -32,7 +32,7 @@ pub enum Token<O, D> {
 }
 
 /// Represents a position in a text. Stored as (line, column).
-/// 
+///
 /// For example, the first character in a given text is (1, 1).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextPos {
@@ -55,16 +55,16 @@ impl Display for TextPos {
 }
 
 /// Represents a token at the given position (line, col)
-/// 
+///
 /// See [`TextPos`] and [`Token`]
-/// 
+///
 /// `pos` can be `None` in circumstances like the EOF was reached.
 #[derive(Debug, PartialEq, Clone)]
 pub struct TokenPos<O: Operator, D: Delimiter> {
     /// The [`Token`] at this position
     pub token: Token<O, D>,
     /// The [`TextPos`] position of this token.
-    /// 
+    ///
     /// Can be `None` in circumstances like the EOF was reached.
     pub pos: Option<TextPos>,
 }
@@ -74,7 +74,7 @@ where
     O: Operator,
     D: Delimiter,
 {
-    /// Create a new [`TokenPos`] with the provided [`Token`] and 
+    /// Create a new [`TokenPos`] with the provided [`Token`] and
     /// [`TextPos`] text position.
     pub fn new(token: Token<O, D>, pos: TextPos) -> Self {
         Self {

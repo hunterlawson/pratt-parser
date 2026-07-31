@@ -13,11 +13,7 @@ pub use lexer::*;
 mod tests {
     use strum::{Display, EnumIter};
 
-    use crate::lexer::{
-        Lexer,
-        default_types::{DefaultOperators, Delimiter, Operator},
-        token::{TextPos, Token, TokenPos},
-    };
+    use crate::{DefaultOperators, Delimiter, Lexer, Operator, TextPos, Token, TokenPos};
 
     #[derive(Clone, PartialEq, EnumIter, Debug)]
     enum TestDelimiter {
@@ -60,17 +56,6 @@ mod tests {
     impl Operator for TestOperator {
         fn binding_power(&self) -> (Option<u16>, Option<u16>) {
             todo!()
-        }
-    }
-
-    fn print_next_token<O: Operator, D: Delimiter>(lexer: &mut Lexer<O, D>) {
-        let res = lexer.next();
-        match res {
-            Ok(t) => match t.pos {
-                Some(p) => println!("{:?} at ({})", t.token, p),
-                None => println!("{:?}", t.token),
-            },
-            Err(e) => println!("{e}"),
         }
     }
 

@@ -1,5 +1,5 @@
-pub mod default_types;
-pub mod token;
+mod default_types;
+mod token;
 
 pub use default_types::{DefaultOperators, Delimiter, NullDelimiter, Operator};
 pub use token::*;
@@ -92,31 +92,31 @@ use crate::{LexerError, LexerResult};
 /// let mut my_lexer = Lexer::<MyOperator, MyDelimiter>::new();
 /// my_lexer.set_text("-->\"Hello, world!\"<--");
 /// assert_eq!(
-///     my_lexer.next().unwrap().token, 
+///     my_lexer.next().unwrap().token,
 ///     Token::Op(MyOperator::RightArrow)
 /// );
 /// assert_eq!(
-///     my_lexer.next().unwrap().token, 
+///     my_lexer.next().unwrap().token,
 ///     Token::Delimited(MyDelimiter::Str("Hello, world!".into()))
 /// );
 /// assert_eq!(
-///     my_lexer.next().unwrap().token, 
+///     my_lexer.next().unwrap().token,
 ///     Token::Op(MyOperator::LeftArrow)
 /// );
-/// 
+///
 /// // You can also just name a custom operator if you don't need a delimiter type
 /// let mut my_lexer = Lexer::<MyOperator>::new();
 /// my_lexer.set_text("-->100<--");
 /// assert_eq!(
-///     my_lexer.next().unwrap().token, 
+///     my_lexer.next().unwrap().token,
 ///     Token::Op(MyOperator::RightArrow)
 /// );
 /// assert_eq!(
-///     my_lexer.next().unwrap().token, 
+///     my_lexer.next().unwrap().token,
 ///     Token::Int(100)
 /// );
 /// assert_eq!(
-///     my_lexer.next().unwrap().token, 
+///     my_lexer.next().unwrap().token,
 ///     Token::Op(MyOperator::LeftArrow)
 /// );
 /// ```
@@ -142,7 +142,7 @@ where
     D: Delimiter,
 {
     /// Initialize an empty lexer with the given operator and delimited types.
-    /// 
+    ///
     /// See [`Lexer`] for examples.
     pub fn new() -> Self {
         // build the maps of operators and delineators
@@ -189,12 +189,12 @@ where
     }
 
     /// Get the next token from the input text. Advances the internal token position.
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```
     /// use pratt_parser::{Lexer, Token, DefaultOperators};
-    /// 
+    ///
     /// let mut my_lexer = Lexer::default();
     /// my_lexer.set_text("1 + 3.14");
     /// assert_eq!(
@@ -440,12 +440,12 @@ where
     /// token of the vector will be a `TokenPos::Eof`.
     ///
     /// Resets the internal token position used by `next`.
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```
     /// use pratt_parser::{Lexer, Token, DefaultOperators};
-    /// 
+    ///
     /// let mut my_lexer = Lexer::default();
     /// my_lexer.set_text("1 + 3.14");
     /// let tokens = my_lexer.lex_all().unwrap();
