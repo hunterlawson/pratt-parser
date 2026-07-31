@@ -29,7 +29,7 @@ use crate::{LexerError, LexerResult};
 ///
 /// // Use the default Lexer with the default operators
 /// let mut my_lexer = Lexer::default();
-/// my_lexer.set_text("z^2");
+/// my_lexer.set_text("z**2");
 /// assert_eq!(
 ///     my_lexer.next().unwrap().token,
 ///     Token::Ident("z".into()),

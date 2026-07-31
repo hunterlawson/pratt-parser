@@ -41,8 +41,8 @@ pub enum DefaultOperators {
     /// `"%"`
     #[strum(to_string = "%")]
     Mod,
-    /// `"^"`
-    #[strum(to_string = "^")]
+    /// `"**"`
+    #[strum(to_string = "**")]
     Pow,
     // ----------- comparison -----------
     /// `"=="`
