@@ -73,6 +73,22 @@ pub enum DefaultOperators {
     /// `"!"`
     #[strum(to_string = "!")]
     Not,
+    // ----------- bitwise -----------
+    /// `"&"`
+    #[strum(to_string = "&")]
+    BwAnd,
+    /// `"|"`
+    #[strum(to_string = "|")]
+    BwOr,
+    /// `"^"`
+    #[strum(to_string = "^")]
+    BwXor,
+    /// `"<<"`
+    #[strum(to_string = "<<")]
+    LShift,
+    /// `">>"`
+    #[strum(to_string = ">>")]
+    RShift,
 }
 
 impl Operator for DefaultOperators {}
